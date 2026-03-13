@@ -1,9 +1,15 @@
-"""Embedding service using Qwen3-Embedding-0.6B (ModelScope)."""
+"""Embedding service using Qwen3-Embedding-0.6B (ModelScope).
+
+Exposes two endpoints:
+  POST /embed              — native format
+  POST /v1/embeddings      — OpenAI-compatible format (for openviking openai provider)
+"""
 
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
-from typing import Union
+from typing import List, Union
 
 import torch
 import torch.nn.functional as F
@@ -31,6 +37,16 @@ def last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tenso
         ]
 
 
+def _encode(texts: list[str]) -> list[list[float]]:
+    encoded = tokenizer(texts, padding=True, truncation=True, max_length=8192, return_tensors="pt")
+    encoded.to(model.device)
+    with torch.no_grad():
+        output = model(**encoded)
+    embeddings = last_token_pool(output.last_hidden_state, encoded["attention_mask"])
+    embeddings = F.normalize(embeddings, p=2, dim=1)
+    return embeddings.tolist()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model, tokenizer, dim
@@ -46,6 +62,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+# ── Native endpoint ────────────────────────────────────────────────────────────
+
 class EmbedRequest(BaseModel):
     input: Union[str, list[str]]
     instruction: str = ""
@@ -56,19 +74,37 @@ def embed(req: EmbedRequest):
     texts = [req.input] if isinstance(req.input, str) else req.input
     if req.instruction:
         texts = [f"Instruct: {req.instruction}\nQuery:{t}" for t in texts]
+    return {"embeddings": _encode(texts), "model": MODEL_ID, "dim": dim}
 
-    encoded = tokenizer(texts, padding=True, truncation=True, max_length=8192, return_tensors="pt")
-    encoded.to(model.device)
-    with torch.no_grad():
-        output = model(**encoded)
-    embeddings = last_token_pool(output.last_hidden_state, encoded["attention_mask"])
-    embeddings = F.normalize(embeddings, p=2, dim=1)
+
+# ── OpenAI-compatible endpoint ─────────────────────────────────────────────────
+
+class OAIEmbedRequest(BaseModel):
+    input: Union[str, List[str]]
+    model: str = MODEL_ID
+    encoding_format: str = "float"
+    dimensions: int = None
+
+
+@app.post("/v1/embeddings")
+def oai_embeddings(req: OAIEmbedRequest):
+    texts = [req.input] if isinstance(req.input, str) else req.input
+    vecs = _encode(texts)
     return {
-        "embeddings": embeddings.tolist(),
-        "model": MODEL_ID,
-        "dim": dim,
+        "object": "list",
+        "model": req.model,
+        "data": [
+            {"object": "embedding", "index": i, "embedding": v}
+            for i, v in enumerate(vecs)
+        ],
+        "usage": {
+            "prompt_tokens": sum(len(t.split()) for t in texts),
+            "total_tokens": sum(len(t.split()) for t in texts),
+        },
     }
 
+
+# ── Health ─────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():

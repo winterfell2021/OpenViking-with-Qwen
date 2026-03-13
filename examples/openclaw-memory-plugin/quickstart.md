@@ -88,16 +88,15 @@ python tests/test_vikingdb_embedding.py
       "provider": "openai",
       "api_key": "local",
       "model": "Qwen3-Embedding-0.6B",
-      "api_base": "http://localhost:8000",
+      "api_base": "http://localhost:8000/v1",
       "dimension": 1024
     }
   }
 }
 ```
 
-> **注意**：embedding service 暴露的是 `/embed` 接口，不是 OpenAI 兼容格式。
-> 如需与 OpenClaw 插件的 `local` 模式配合，请使用标准 `ov.conf`（volcengine 或 openai provider），
-> 本地 embedding 服务主要用于直接调用 VikingDB API 的场景（如 `test_vikingdb_embedding.py`）。
+> embedding 服务同时暴露 `POST /embed`（原生格式）和 `POST /v1/embeddings`（OpenAI 兼容格式），
+> OpenViking 的 `openai` provider 会自动调用 `/v1/embeddings`。
 
 ---
 
