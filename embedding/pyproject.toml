@@ -1,0 +1,20 @@
+[project]
+name = "openviking-embedding"
+version = "0.1.0"
+description = "Local embedding service using Qwen3-Embedding-0.6B"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "transformers>=4.51.0",
+    "torch>=2.2.0",
+    "modelscope",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
